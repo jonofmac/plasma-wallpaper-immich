@@ -1,0 +1,8 @@
+/build/
+/dist/
+/.cache/
+/.idea/
+/.vscode/
+*.user
+*.swp
+*.bak

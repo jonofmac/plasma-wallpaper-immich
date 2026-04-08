@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PACKAGE_DIR="$ROOT_DIR/package"
+PACKAGE_ID="org.kde.plasma.wallpapers.immich"
+
+usage() {
+  cat <<'EOF'
+Usage: ./kpac <command>
+
+Commands:
+  install       Install package/ to user plasma wallpaper path
+  remove        Remove installed wallpaper package
+  package       Build .plasmoid archive (uses package-plasmoid.sh)
+  reinstall     Remove then install
+  help          Show this help
+EOF
+}
+
+install_pkg() {
+  local target="${XDG_DATA_HOME:-$HOME/.local/share}/plasma/wallpapers/$PACKAGE_ID"
+  mkdir -p "$(dirname "$target")"
+  rm -rf "$target"
+  cp -a "$PACKAGE_DIR" "$target"
+  echo "Installed package to: $target"
+}
+
+remove_pkg() {
+  local target="${XDG_DATA_HOME:-$HOME/.local/share}/plasma/wallpapers/$PACKAGE_ID"
+  rm -rf "$target"
+  echo "Removed package from: $target"
+}
+
+case "${1:-help}" in
+  install)
+    install_pkg
+    ;;
+  remove)
+    remove_pkg
+    ;;
+  reinstall)
+    remove_pkg
+    install_pkg
+    ;;
+  package)
+    "$ROOT_DIR/package-plasmoid.sh"
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $1" >&2
+    usage
+    exit 1
+    ;;
+esac

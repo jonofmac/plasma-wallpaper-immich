@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "Plasma/Wallpaper",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "",
+                "Name": "wallpaper-immich"
+            }
+        ],
+        "Description": "Desktop background from albums on an Immich photo server",
+        "Icon": "folder-pictures-symbolic",
+        "Id": "org.kde.plasma.wallpapers.immich",
+        "License": "GPL-2.0+",
+        "Name": "Immich Wallpaper",
+        "Version": "0.1.0",
+        "Website": "https://github.com/jonofmac/plasma-wallpaper-immich"
+    },
+    "X-KDE-ParentApp": "org.kde.plasmashell"
+}

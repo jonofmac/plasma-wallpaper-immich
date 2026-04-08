@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd" >
+  <kcfgfile name=""/>
+
+  <group name="General">
+    <entry name="ServerUrl" type="String">
+      <label>Immich server URL</label>
+      <default></default>
+    </entry>
+    <entry name="Email" type="String">
+      <label>Immich account email</label>
+      <default></default>
+    </entry>
+    <entry name="Password" type="String">
+      <label>Password</label>
+      <default></default>
+    </entry>
+    <entry name="AuthMode" type="int">
+      <label>Authentication mode (0=API key, 1=email/password)</label>
+      <default>0</default>
+    </entry>
+    <entry name="ApiKey" type="String">
+      <label>Immich API key</label>
+      <default></default>
+    </entry>
+    <entry name="ShowMode" type="int">
+      <label>What to show (0=albums, 1=tags, 2=favorites, 3=all)</label>
+      <default>0</default>
+    </entry>
+    <entry name="SelectedAlbumIds" type="StringList">
+      <label>Albums to show</label>
+      <default></default>
+    </entry>
+    <entry name="SelectedTagIds" type="StringList">
+      <label>Tags to show</label>
+      <default></default>
+    </entry>
+    <entry name="FillMode" type="int">
+      <label>Sizing and positioning</label>
+      <default>2</default>
+    </entry>
+    <entry name="Color" type="Color">
+      <label>Background color when no image</label>
+      <default>#000000</default>
+    </entry>
+    <entry name="SlideInterval" type="int">
+      <label>Seconds between photos</label>
+      <default>900</default>
+    </entry>
+    <entry name="FadeDuration" type="int">
+      <label>Fade duration between photos (ms)</label>
+      <default>1200</default>
+    </entry>
+  </group>
+</kcfg>
