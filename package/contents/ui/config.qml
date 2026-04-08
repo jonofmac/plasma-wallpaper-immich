@@ -34,6 +34,9 @@ Kirigami.FormLayout {
     property alias cfg_Color: colorButton.color
     property int cfg_SlideInterval
     property int cfg_FadeDuration
+    property int intervalHours: 0
+    property int intervalMinutes: 0
+    property int intervalSeconds: 30
     signal configurationChanged()
 
     function normalizedStringList(input) {
@@ -112,6 +115,25 @@ Kirigami.FormLayout {
         }
     }
 
+    function splitInterval() {
+        const total = Math.max(30, Number(cfg_SlideInterval) || 30);
+        intervalHours = Math.floor(total / 3600);
+        const rem = total % 3600;
+        intervalMinutes = Math.floor(rem / 60);
+        intervalSeconds = rem % 60;
+    }
+
+    function updateIntervalFromParts() {
+        let total = (intervalHours * 3600) + (intervalMinutes * 60) + intervalSeconds;
+        if (total < 30) {
+            total = 30;
+            splitInterval();
+        }
+        if (cfg_SlideInterval !== total) {
+            cfg_SlideInterval = total;
+        }
+    }
+
     function statusText() {
         if (backend.errorMessage.length > 0) {
             return backend.errorMessage;
@@ -134,10 +156,12 @@ Kirigami.FormLayout {
 
     onCfg_SelectedAlbumIdsChanged: selectedAlbumIds = normalizedStringList(cfg_SelectedAlbumIds)
     onCfg_SelectedTagIdsChanged: selectedTagIds = normalizedStringList(cfg_SelectedTagIds)
+    onCfg_SlideIntervalChanged: splitInterval()
     onFilterTextChanged: resetSelectorPosition()
     Component.onCompleted: {
         selectedAlbumIds = normalizedStringList(cfg_SelectedAlbumIds);
         selectedTagIds = normalizedStringList(cfg_SelectedTagIds);
+        splitInterval();
     }
 
     ImmichBackend {
@@ -193,8 +217,12 @@ Kirigami.FormLayout {
             }
         }
 
-        Kirigami.ContextualHelpButton {
-            toolTipText: "API key mode is recommended. Create an API key in Immich user settings and paste it here. Required permissions: tag.read, album.read, asset.view, asset.read, asset.download, asset.view."
+        QQC2.ToolButton {
+            icon.name: "help-contextual"
+            display: QQC2.AbstractButton.IconOnly
+            text: "Authentication help"
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: "API key mode is recommended. Create an API key in Immich user settings and paste it here. Required permissions: tag.read, album.read, asset.view, asset.read, asset.download, asset.view."
         }
     }
 
@@ -421,13 +449,45 @@ Kirigami.FormLayout {
         dialogTitle: "Background color"
     }
 
-    QQC2.SpinBox {
-        Kirigami.FormData.label: "Slide interval (seconds):"
-        from: 30
-        to: 86400
-        stepSize: 30
-        value: cfg_SlideInterval
-        onValueChanged: cfg_SlideInterval = value
+    RowLayout {
+        Kirigami.FormData.label: "Slide interval:"
+        Layout.fillWidth: true
+
+        QQC2.SpinBox {
+            from: 0
+            to: 24
+            value: intervalHours
+            editable: true
+            onValueChanged: {
+                intervalHours = value;
+                root.updateIntervalFromParts();
+            }
+        }
+        QQC2.Label { text: "hours" }
+
+        QQC2.SpinBox {
+            from: 0
+            to: 59
+            value: intervalMinutes
+            editable: true
+            onValueChanged: {
+                intervalMinutes = value;
+                root.updateIntervalFromParts();
+            }
+        }
+        QQC2.Label { text: "minutes" }
+
+        QQC2.SpinBox {
+            from: 0
+            to: 59
+            value: intervalSeconds
+            editable: true
+            onValueChanged: {
+                intervalSeconds = value;
+                root.updateIntervalFromParts();
+            }
+        }
+        QQC2.Label { text: "seconds" }
     }
 
     QQC2.SpinBox {
