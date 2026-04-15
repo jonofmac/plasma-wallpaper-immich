@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QPointer>
 #include <QRandomGenerator>
 #include <QSet>
 #include <QStandardPaths>
@@ -317,12 +318,21 @@ void ImmichBackend::applyAuthHeader(QNetworkRequest &req) const
 
 void ImmichBackend::abortPending()
 {
-    if (m_reply) {
-        m_reply->abort();
-        m_reply->deleteLater();
-        m_reply = nullptr;
+    QPointer<QNetworkReply> guard(m_reply);
+    if (!guard) {
+        m_phase = Phase::Idle;
+        return;
     }
+    m_reply = nullptr;
     m_phase = Phase::Idle;
+    // abort() can emit finished() synchronously; our handlers used to clear m_reply and
+    // deleteLater the reply, which left a second deleteLater(nullptr) here. We disconnect
+    // first. QPointer covers the case where abort() destroys the reply synchronously.
+    guard->disconnect(this);
+    guard->abort();
+    if (guard) {
+        guard->deleteLater();
+    }
 }
 
 void ImmichBackend::setLoading(bool loading)
