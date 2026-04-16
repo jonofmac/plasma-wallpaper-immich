@@ -109,6 +109,7 @@ private:
     void setMatchCount(int count);
     void setError(const QString &message);
     void setLocalUrl(const QString &pathOrUrl);
+    void restoreLastWallpaperIfCached();
     void updateApiBase();
     void applyAuthHeader(QNetworkRequest &req) const;
 

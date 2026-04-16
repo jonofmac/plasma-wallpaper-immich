@@ -84,6 +84,7 @@ ImmichBackend::~ImmichBackend()
 
 void ImmichBackend::componentComplete()
 {
+    restoreLastWallpaperIfCached();
     m_refreshDebounce->stop();
     performRefresh();
 }
@@ -377,7 +378,44 @@ void ImmichBackend::setLocalUrl(const QString &pathOrUrl)
         return;
     }
     m_localUrl = pathOrUrl;
+
+    const QString marker = m_cacheDir + QStringLiteral("/last_wallpaper.url");
+    if (m_localUrl.isEmpty()) {
+        QFile::remove(marker);
+    } else {
+        const QUrl u(m_localUrl);
+        if (u.isLocalFile()) {
+            QFile f(marker);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                f.write(m_localUrl.toUtf8());
+            }
+        }
+    }
+
     Q_EMIT localUrlChanged();
+}
+
+void ImmichBackend::restoreLastWallpaperIfCached()
+{
+    const QString marker = m_cacheDir + QStringLiteral("/last_wallpaper.url");
+    QFile f(marker);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return;
+    }
+    const QString url = QString::fromUtf8(f.readAll()).trimmed();
+    if (url.isEmpty()) {
+        return;
+    }
+    const QUrl u(url);
+    if (!u.isLocalFile()) {
+        return;
+    }
+    const QString path = u.toLocalFile();
+    if (!QFile::exists(path)) {
+        QFile::remove(marker);
+        return;
+    }
+    setLocalUrl(url);
 }
 
 void ImmichBackend::scheduleRefresh()
@@ -791,7 +829,7 @@ void ImmichBackend::finishAssetCollection()
         } else {
             setError(QStringLiteral("No photos found."));
         }
-        setLocalUrl(QString());
+        // Keep showing the last cached image (e.g. after resume when the network is not ready yet).
         m_slideTimer->stop();
         return;
     }
