@@ -126,6 +126,8 @@ private:
     void handleImageDownloadFinished();
 
     void advanceSlide();
+    void failRefreshNetworkError(const QString &message);
+    void scheduleNetworkRetry();
 
     QString m_serverUrl;
     QString m_email;
@@ -162,5 +164,14 @@ private:
 
     QTimer *m_slideTimer = nullptr;
     QTimer *m_refreshDebounce = nullptr;
+    QTimer *m_networkRetryTimer = nullptr;
     QString m_cacheDir;
+
+    QStringList m_refreshBackupAssetIds;
+    int m_refreshBackupIndex = 0;
+    bool m_slideActiveBeforeRefresh = false;
+
+    int m_networkFailureStep = 0;
+    int m_imageDownloadRetries = 0;
+    bool m_wantsNetworkRetry = false;
 };

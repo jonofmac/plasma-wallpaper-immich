@@ -8,6 +8,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkInformation>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
@@ -70,6 +71,29 @@ ImmichBackend::ImmichBackend(QObject *parent)
     m_refreshDebounce->setSingleShot(true);
     m_refreshDebounce->setInterval(400);
     connect(m_refreshDebounce, &QTimer::timeout, this, &ImmichBackend::performRefresh);
+
+    m_networkRetryTimer = new QTimer(this);
+    m_networkRetryTimer->setSingleShot(true);
+    connect(m_networkRetryTimer, &QTimer::timeout, this, &ImmichBackend::performRefresh);
+
+    if (QNetworkInformation::loadDefaultBackend()) {
+        if (QNetworkInformation *const info = QNetworkInformation::instance()) {
+            connect(info, &QNetworkInformation::reachabilityChanged, this, [this](QNetworkInformation::Reachability r) {
+                if (r != QNetworkInformation::Reachability::Online || !m_wantsNetworkRetry) {
+                    return;
+                }
+                m_networkRetryTimer->stop();
+                m_refreshDebounce->stop();
+                m_networkFailureStep = 0;
+                QTimer::singleShot(2000, this, [this]() {
+                    if (QNetworkInformation::instance()
+                        && QNetworkInformation::instance()->reachability() == QNetworkInformation::Reachability::Online) {
+                        performRefresh();
+                    }
+                });
+            });
+        }
+    }
 
     const QString base =
         QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/plasma-wallpaper-immich");
@@ -270,6 +294,9 @@ QVariantList ImmichBackend::tags() const
 
 void ImmichBackend::refreshAlbums()
 {
+    m_networkFailureStep = 0;
+    m_wantsNetworkRetry = false;
+    m_networkRetryTimer->stop();
     m_refreshDebounce->stop();
     performRefresh();
 }
@@ -280,6 +307,7 @@ void ImmichBackend::nextImage()
         return;
     }
     m_currentAssetIndex = (m_currentAssetIndex + 1) % m_assetIds.size();
+    m_imageDownloadRetries = 0;
     m_slideTimer->stop();
     abortPending();
     m_phase = Phase::Idle;
@@ -292,6 +320,7 @@ void ImmichBackend::previousImage()
         return;
     }
     m_currentAssetIndex = (m_currentAssetIndex - 1 + m_assetIds.size()) % m_assetIds.size();
+    m_imageDownloadRetries = 0;
     m_slideTimer->stop();
     abortPending();
     m_phase = Phase::Idle;
@@ -420,11 +449,15 @@ void ImmichBackend::restoreLastWallpaperIfCached()
 
 void ImmichBackend::scheduleRefresh()
 {
+    m_networkFailureStep = 0;
+    m_wantsNetworkRetry = false;
+    m_networkRetryTimer->stop();
     m_refreshDebounce->start();
 }
 
 void ImmichBackend::performRefresh()
 {
+    m_slideActiveBeforeRefresh = m_slideTimer->isActive();
     m_slideTimer->stop();
     m_slideTimer->setInterval(qMax(30, m_slideIntervalSeconds) * 1000);
 
@@ -441,6 +474,10 @@ void ImmichBackend::performRefresh()
         Q_EMIT tagsChanged();
         setLocalUrl(QString());
         m_slideTimer->stop();
+        m_refreshBackupAssetIds.clear();
+        m_networkFailureStep = 0;
+        m_wantsNetworkRetry = false;
+        m_networkRetryTimer->stop();
         return;
     }
 
@@ -449,7 +486,10 @@ void ImmichBackend::performRefresh()
     setMatchCount(0);
     setError(QString());
     setLoading(true);
+    m_imageDownloadRetries = 0;
     abortPending();
+    m_refreshBackupAssetIds = m_assetIds;
+    m_refreshBackupIndex = m_currentAssetIndex;
     m_assetIds.clear();
     Q_EMIT canNavigateChanged();
     m_searchFilterQueue.clear();
@@ -492,8 +532,7 @@ void ImmichBackend::handleLoginFinished()
 
     if (reply->error() != QNetworkReply::NoError) {
         setAuthenticated(false);
-        setLoading(false);
-        setError(QStringLiteral("Login failed: %1").arg(reply->errorString()));
+        failRefreshNetworkError(QStringLiteral("Login failed: %1").arg(reply->errorString()));
         return;
     }
 
@@ -502,8 +541,7 @@ void ImmichBackend::handleLoginFinished()
     m_accessToken = root[QStringLiteral("accessToken")].toString();
     if (m_accessToken.isEmpty()) {
         setAuthenticated(false);
-        setLoading(false);
-        setError(QStringLiteral("Login failed: no access token in response"));
+        failRefreshNetworkError(QStringLiteral("Login failed: no access token in response"));
         return;
     }
     setAuthenticated(true);
@@ -538,8 +576,7 @@ void ImmichBackend::handleAlbumListFinished()
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
-        setLoading(false);
-        setError(QStringLiteral("Could not list albums: %1").arg(reply->errorString()));
+        failRefreshNetworkError(QStringLiteral("Could not list albums: %1").arg(reply->errorString()));
         return;
     }
 
@@ -593,8 +630,7 @@ void ImmichBackend::handleTagListFinished()
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
-        setLoading(false);
-        setError(QStringLiteral("Could not list tags: %1").arg(reply->errorString()));
+        failRefreshNetworkError(QStringLiteral("Could not list tags: %1").arg(reply->errorString()));
         return;
     }
 
@@ -752,8 +788,7 @@ void ImmichBackend::handleSearchAssetsFinished()
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
-        setLoading(false);
-        setError(QStringLiteral("Could not search assets: %1").arg(reply->errorString()));
+        failRefreshNetworkError(QStringLiteral("Could not search assets: %1").arg(reply->errorString()));
         return;
     }
 
@@ -880,9 +915,19 @@ void ImmichBackend::handleImageDownloadFinished()
     const QString assetId = m_assetIds.value(m_currentAssetIndex);
 
     if (reply->error() != QNetworkReply::NoError) {
+        const QString err = reply->errorString();
         reply->deleteLater();
+        if (m_imageDownloadRetries < 3) {
+            ++m_imageDownloadRetries;
+            setError(QStringLiteral("Image download failed, retrying… (%1/3)").arg(m_imageDownloadRetries));
+            QTimer::singleShot(4000, this, [this]() { startDownloadCurrentAsset(); });
+            return;
+        }
+        m_imageDownloadRetries = 0;
         setLoading(false);
-        setError(QStringLiteral("Could not download image: %1").arg(reply->errorString()));
+        setError(QStringLiteral("Could not download image: %1").arg(err));
+        m_wantsNetworkRetry = true;
+        scheduleNetworkRetry();
         return;
     }
 
@@ -901,6 +946,10 @@ void ImmichBackend::handleImageDownloadFinished()
     f.close();
 
     const QString fileUrl = QUrl::fromLocalFile(imagePath).toString();
+    m_imageDownloadRetries = 0;
+    m_networkFailureStep = 0;
+    m_wantsNetworkRetry = false;
+    m_networkRetryTimer->stop();
     setLocalUrl(fileUrl);
     setLoading(false);
     setError(QString());
@@ -916,8 +965,42 @@ void ImmichBackend::advanceSlide()
         return;
     }
     m_currentAssetIndex = (m_currentAssetIndex + 1) % m_assetIds.size();
+    m_imageDownloadRetries = 0;
     setLoading(true);
     abortPending();
     m_phase = Phase::Idle;
     startDownloadCurrentAsset();
+}
+
+void ImmichBackend::failRefreshNetworkError(const QString &message)
+{
+    setLoading(false);
+    setError(message);
+    m_phase = Phase::Idle;
+    m_wantsNetworkRetry = true;
+
+    if (m_assetIds.isEmpty() && !m_refreshBackupAssetIds.isEmpty()) {
+        m_assetIds = m_refreshBackupAssetIds;
+        m_currentAssetIndex = m_assetIds.isEmpty() ? 0 : qBound(0, m_refreshBackupIndex, m_assetIds.size() - 1);
+        setMatchCount(m_assetIds.size());
+        Q_EMIT canNavigateChanged();
+        if (m_slideActiveBeforeRefresh && !m_assetIds.isEmpty() && m_slideIntervalSeconds > 0) {
+            m_slideTimer->start();
+        }
+    }
+
+    scheduleNetworkRetry();
+}
+
+void ImmichBackend::scheduleNetworkRetry()
+{
+    if (m_networkFailureStep >= 12) {
+        return;
+    }
+    ++m_networkFailureStep;
+    const int step = m_networkFailureStep;
+    const int delayMs = qMin(300000, 5000 * (1 << qMin(step - 1, 6)));
+    m_networkRetryTimer->stop();
+    m_networkRetryTimer->setInterval(delayMs);
+    m_networkRetryTimer->start();
 }
